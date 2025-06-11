@@ -9,7 +9,7 @@ from .api.auth import get_password_hash
 
 # Database URL
 DATABASE_URL = os.getenv(
-    "DATABASE_URL_SYNC", "postgresql://postgres:postgres@localhost:55432/postgres")
+    "DATABASE_URL", "postgresql://postgres:postgres@db:5432/postgres")
 
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

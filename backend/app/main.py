@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from .api.auth import router as auth_router
 from .api.files import router as files_router
 from .api.gpt import router as gpt_router
+from .api.users import router as users_router
 
 app = FastAPI(
     title="Full-Stack AI Agent API",
@@ -25,6 +26,7 @@ app.add_middleware(
 app.include_router(auth_router)
 app.include_router(files_router)
 app.include_router(gpt_router)
+app.include_router(users_router)
 
 
 @app.get("/")
@@ -34,6 +36,7 @@ def read_root():
         "version": "1.0.0",
         "endpoints": {
             "auth": "/auth",
+            "users": "/users",
             "files": "/files",
             "gpt": "/gpt",
             "docs": "/docs"

@@ -114,7 +114,7 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
     return encoded_jwt
 
 
-async def get_current_user(
+def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security),
     db=Depends(get_db)
 ):
@@ -191,13 +191,13 @@ def login(user: UserLogin, db=Depends(get_db)):
 
 
 @router.get("/me", response_model=UserResponse)
-async def read_users_me(current_user=Depends(get_current_user)):
+def read_users_me(current_user=Depends(get_current_user)):
     """Get current user profile."""
     return current_user
 
 
 @router.post("/refresh", response_model=Token)
-async def refresh_token(current_user=Depends(get_current_user)):
+def refresh_token(current_user=Depends(get_current_user)):
     """Refresh JWT token."""
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
