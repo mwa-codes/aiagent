@@ -1,18 +1,126 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Installer logs
+debug.log
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+.pytest_cache/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# pyenv
+.python-version
+
+# pipenv
+Pipfile.lock
+
+# poetry
+poetry.lock
+
+# mypy
+.mypy_cache/
+.dmypy.json
+
+# VS Code
+.vscode/
+
+# macOS
+.DS_Store
+
+# Docker
+**/uploads/
+
+# Ignore large or sensitive test data (edit as needed)
+tests/data/*.large.csv
+tests/data/*.large.txt
+
+# Ignore secrets
+.env
+.env.*
+
 # Node
 node_modules/
-.next/
+frontend/.next/
+frontend/out/
 
-# Python
-__pycache__/
-*.pyc
-venv/
-.env
+# Ignore log files
+*.log
 
-# Streamlit
+# Ignore local scripts output
+scripts/*.log
+
+# Ignore migration cache
+backend/migrations/__pycache__/
+backend/migrations/versions/__pycache__/
+
+# Ignore Streamlit cache
+.dashboards_cache/
 .streamlit/
 
-# VSCode
-.vscode/
+# Ignore Python test output
+*.tmp
+*.temp
+
+# Ignore backup files
+*~
+*.bak
+*.swp
+*.swo
+
+# Ignore test results
+*.testresult
+
+# Ignore coverage
+.coverage
+
+# Ignore docs build
+docs/_build/
+
+# Allow docs, tests, and small test data
+!docs/
+!tests/
+!tests/data/*.csv
+!tests/data/*.txt
+!tests/data/*.py
 
 # DB
 pgdata/
+
+# End of .gitignore
