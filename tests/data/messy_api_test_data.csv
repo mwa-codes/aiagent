@@ -1,0 +1,64 @@
+ID, Customer Name ,Age,Annual Salary,Start Date,Is Active,Department,Unnamed: 6,
+1.0,Alice Johnson,25,50000,2020-01-15,yes,Engineering,,junk
+2.0,Bob Smith,30,60000,2019/05/20,no,Sales,,junk
+3.0,,invalid,,,true,Marketing,,junk
+4.0,Charlie Brown,45,70000,2021-12-01,1,HR,,junk
+5.0,Diana Prince,50,N/A,invalid_date,0,,,junk
+6.0,Eve Wilson,35,80000,2022-03-10,false,Engineering,,junk
+7.0,Frank Miller,28,55000,2020-07-22,Y,Finance,,junk
+8.0,Grace Lee,33,65000,2019/11/15,N,Operations,,junk
+9.0,Henry Ford,,75000,2021-08-30,TRUE,IT,,junk
+10.0,Ivy Chen,29,85000,2022-01-05,FALSE,Legal,,junk
+11.0,Alice Johnson,25,50000,2020-01-15,yes,Engineering,,junk
+12.0,Bob Smith,30,60000,2019/05/20,no,Sales,,junk
+13.0,,invalid,,,true,Marketing,,junk
+14.0,Charlie Brown,45,70000,2021-12-01,1,HR,,junk
+15.0,Diana Prince,50,N/A,invalid_date,0,,,junk
+16.0,Eve Wilson,35,80000,2022-03-10,false,Engineering,,junk
+17.0,Frank Miller,28,55000,2020-07-22,Y,Finance,,junk
+18.0,Grace Lee,33,65000,2019/11/15,N,Operations,,junk
+19.0,Henry Ford,,75000,2021-08-30,TRUE,IT,,junk
+20.0,Ivy Chen,29,85000,2022-01-05,FALSE,Legal,,junk
+21.0,Alice Johnson,25,50000,2020-01-15,yes,Engineering,,junk
+22.0,Bob Smith,30,60000,2019/05/20,no,Sales,,junk
+23.0,,invalid,,,true,Marketing,,junk
+24.0,Charlie Brown,45,70000,2021-12-01,1,HR,,junk
+25.0,Diana Prince,50,N/A,invalid_date,0,,,junk
+26.0,Eve Wilson,35,80000,2022-03-10,false,Engineering,,junk
+27.0,Frank Miller,28,55000,2020-07-22,Y,Finance,,junk
+28.0,Grace Lee,33,65000,2019/11/15,N,Operations,,junk
+29.0,Henry Ford,,75000,2021-08-30,TRUE,IT,,junk
+30.0,Ivy Chen,29,85000,2022-01-05,FALSE,Legal,,junk
+31.0,Alice Johnson,25,50000,2020-01-15,yes,Engineering,,junk
+32.0,Bob Smith,30,60000,2019/05/20,no,Sales,,junk
+33.0,,invalid,,,true,Marketing,,junk
+34.0,Charlie Brown,45,70000,2021-12-01,1,HR,,junk
+35.0,Diana Prince,50,N/A,invalid_date,0,,,junk
+36.0,Eve Wilson,35,80000,2022-03-10,false,Engineering,,junk
+37.0,Frank Miller,28,55000,2020-07-22,Y,Finance,,junk
+38.0,Grace Lee,33,65000,2019/11/15,N,Operations,,junk
+39.0,Henry Ford,,75000,2021-08-30,TRUE,IT,,junk
+40.0,Ivy Chen,29,85000,2022-01-05,FALSE,Legal,,junk
+41.0,Alice Johnson,25,50000,2020-01-15,yes,Engineering,,junk
+42.0,Bob Smith,30,60000,2019/05/20,no,Sales,,junk
+43.0,,invalid,,,true,Marketing,,junk
+44.0,Charlie Brown,45,70000,2021-12-01,1,HR,,junk
+45.0,Diana Prince,50,N/A,invalid_date,0,,,junk
+46.0,Eve Wilson,35,80000,2022-03-10,false,Engineering,,junk
+47.0,Frank Miller,28,55000,2020-07-22,Y,Finance,,junk
+48.0,Grace Lee,33,65000,2019/11/15,N,Operations,,junk
+49.0,Henry Ford,,75000,2021-08-30,TRUE,IT,,junk
+50.0,Ivy Chen,29,85000,2022-01-05,FALSE,Legal,,junk
+,Alice Johnson,25,50000,2020-01-15,yes,Engineering,,junk
+,Bob Smith,30,60000,2019/05/20,no,Sales,,junk
+,,invalid,,,true,Marketing,,junk
+,Charlie Brown,45,70000,2021-12-01,1,HR,,junk
+,Diana Prince,50,N/A,invalid_date,0,,,junk
+,Eve Wilson,35,80000,2022-03-10,false,Engineering,,junk
+,Frank Miller,28,55000,2020-07-22,Y,Finance,,junk
+,Grace Lee,33,65000,2019/11/15,N,Operations,,junk
+,Henry Ford,,75000,2021-08-30,TRUE,IT,,junk
+,Ivy Chen,29,85000,2022-01-05,FALSE,Legal,,junk
+1.0,Alice Johnson,25,50000,2020-01-15,yes,Engineering,,junk
+2.0,Bob Smith,30,60000,2019/05/20,no,Sales,,junk
+3.0,,invalid,,,true,Marketing,,junk

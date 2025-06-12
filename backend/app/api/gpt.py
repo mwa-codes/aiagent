@@ -1,19 +1,89 @@
-import os
-from typing import Optional
-
-from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
+import os
+import openai
+from typing import Optional
+from fastapi import APIRouter, Depends, HTTPException, status
+from .auth import get_current_user
+
+router = APIRouter(prefix="/gpt", tags=["gpt"])
+
+
+def chunk_text(text: str, max_tokens: int = 1500) -> list[str]:
+    """
+    Split text into chunks of approximately max_tokens (by word count for simplicity).
+    Adjust max_tokens as needed for your model/context window.
+    """
+    words = text.split()
+    chunk_size = max_tokens * 0.75  # rough estimate: 1 token ≈ 0.75 words
+    chunk_size = int(chunk_size)
+    return [
+        ' '.join(words[i:i+chunk_size])
+        for i in range(0, len(words), chunk_size)
+    ]
+
+
+class SummarizeRequest(BaseModel):
+    text: str
+    model: Optional[str] = "gpt-4.1"
+
+
+class SummarizeResponse(BaseModel):
+    summary: str
+
+
+# --- Summarization Endpoint ---
+@router.post("/summarize", response_model=SummarizeResponse)
+async def summarize_text_api(
+    request: SummarizeRequest,
+    current_user=Depends(get_current_user)
+):
+    """Summarize the given text using OpenAI GPT-4.1 (or specified model). Handles chunking for long texts."""
+    if not openai.api_key:
+        raise HTTPException(
+            status_code=500, detail="OpenAI API key not configured.")
+    try:
+        text = request.text.strip()
+        model = request.model or "gpt-4.1"
+        # Chunk if text is long
+        chunks = chunk_text(text, max_tokens=1500) if len(
+            text.split()) > 1800 else [text]
+        chunk_summaries = []
+        for chunk in chunks:
+            response = openai.ChatCompletion.create(
+                model=model,
+                messages=[
+                    {"role": "system",
+                        "content": "You are an assistant that summarizes data."},
+                    {"role": "user", "content": chunk}
+                ]
+            )
+            chunk_summary = response['choices'][0]['message']['content']
+            chunk_summaries.append(chunk_summary)
+        # If more than one chunk, summarize the summaries
+        if len(chunk_summaries) > 1:
+            final_response = openai.ChatCompletion.create(
+                model=model,
+                messages=[
+                    {"role": "system",
+                        "content": "You are an assistant that summarizes data."},
+                    {"role": "user", "content": '\n'.join(chunk_summaries)}
+                ]
+            )
+            summary = final_response['choices'][0]['message']['content']
+        else:
+            summary = chunk_summaries[0]
+        return SummarizeResponse(summary=summary)
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"OpenAI summarization error: {str(e)}")
+
 
 try:
-    import openai
     from sqlalchemy.orm import Session
     from ..db import get_db
     from ..models import Result, FileUpload, User
-    from .auth import get_current_user
 except ImportError:
     pass
-
-router = APIRouter(prefix="/gpt", tags=["gpt"])
 
 # OpenAI configuration
 openai.api_key = os.getenv("OPENAI_API_KEY")

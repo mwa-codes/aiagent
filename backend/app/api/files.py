@@ -9,16 +9,13 @@ from io import BytesIO
 from fastapi import APIRouter, UploadFile, File, Depends, HTTPException, status
 from pydantic import BaseModel
 
-try:
-    import pandas as pd
-    import openpyxl
-    from sqlalchemy.orm import Session
-    from ..db import get_db
-    from ..models import FileUpload, User
-    from .auth import get_current_user
-except ImportError as e:
-    print(f"Import error: {e}")
-    pass
+import pandas as pd
+import openpyxl
+from sqlalchemy.orm import Session
+from ..db import get_db
+from ..models import FileUpload, User
+from .auth import get_current_user
+from ..utils.data_cleaning import clean_uploaded_file
 
 router = APIRouter(prefix="/files", tags=["files"])
 
@@ -31,6 +28,7 @@ ALLOWED_MIME_TYPES = {
     "text/plain",
     "text/csv",
     "application/csv",
+    "application/octet-stream",  # Sometimes CSV files are detected as this
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     "application/vnd.ms-excel"
 }
@@ -85,31 +83,157 @@ class DataCleaningResponse(BaseModel):
 
 def clean_data(file_path: str) -> pd.DataFrame:
     """
-    Load file into pandas and perform cleaning.
+    Comprehensive data parsing and cleaning function for uploaded files.
 
-    Data cleaning best practices include handling nulls and outliers.
-    Tailor cleaning to your data (e.g. date parsing, numeric types). 
-    Ensure cleaned data is ready for summarization.
+    Performs the following cleaning steps:
+    1. Load file into pandas DataFrame
+    2. Drop empty rows and columns
+    3. Standardize column headers
+    4. Convert data types appropriately
+    5. Remove duplicates
+    6. Handle missing values
+
+    Args:
+        file_path (str): Path to the uploaded file
+
+    Returns:
+        pd.DataFrame: Cleaned DataFrame ready for analysis and summarization
+
+    Raises:
+        ValueError: If file type is unsupported or cleaning fails
     """
     try:
-        # Load data based on file extension
-        if file_path.endswith(".csv") or file_path.endswith(".txt"):
-            df = pd.read_csv(file_path)
-        elif file_path.endswith(".xlsx"):
+        # Step 1: Load data based on file extension
+        file_ext = file_path.lower()
+        if file_ext.endswith((".csv", ".txt")):
+            # Try different encodings for robust CSV/TXT loading
+            encodings = ['utf-8', 'latin1', 'cp1252', 'iso-8859-1']
+            df = None
+            for encoding in encodings:
+                try:
+                    df = pd.read_csv(file_path, encoding=encoding)
+                    break
+                except UnicodeDecodeError:
+                    continue
+            if df is None:
+                raise ValueError(
+                    "Could not decode file with supported encodings")
+
+        elif file_ext.endswith((".xlsx", ".xls")):
             df = pd.read_excel(file_path)
         else:
-            raise ValueError("Unsupported file type")
+            raise ValueError(f"Unsupported file type: {file_ext}")
 
-        # Remove rows/columns that are entirely empty
-        df = df.dropna(axis='index', how='all').dropna(
-            axis='columns', how='all')
+        # Store original shape for reporting
+        original_shape = df.shape
 
-        # Additional cleaning: drop irrelevant columns
-        df = df.drop(columns=[col for col in df.columns if col.startswith(
-            "Unnamed")], errors='ignore')
+        # Step 2: Drop entirely empty rows and columns
+        df = df.dropna(axis='index', how='all')  # Remove empty rows
+        df = df.dropna(axis='columns', how='all')  # Remove empty columns
 
-        # Reset index
+        # Step 3: Clean and standardize column headers
+        # Remove unnamed columns (often from Excel files)
+        df = df.drop(columns=[col for col in df.columns if str(
+            col).startswith("Unnamed")], errors='ignore')
+
+        # Standardize column names
+        if not df.empty:
+            # Clean column names: strip whitespace, replace spaces with underscores, lowercase
+            df.columns = [
+                str(col).strip()
+                .replace(' ', '_')
+                .replace('-', '_')
+                .replace('.', '_')
+                .lower()
+                .replace('__', '_')  # Replace double underscores
+                for col in df.columns
+            ]
+
+            # Remove special characters from column names
+            import re
+            df.columns = [re.sub(r'[^\w_]', '', col) for col in df.columns]
+
+            # Ensure column names are not empty
+            df.columns = [
+                col if col else f'column_{i}' for i, col in enumerate(df.columns)]
+
+        # Step 4: Convert data types appropriately
+        if not df.empty:
+            for column in df.columns:
+                # Skip if column is already properly typed
+                if df[column].dtype in ['int64', 'float64', 'bool']:
+                    continue
+
+                # Try to convert to numeric (integers or floats)
+                numeric_converted = pd.to_numeric(df[column], errors='coerce')
+                if not numeric_converted.isna().all():
+                    # If more than 50% of values are numeric, convert the column
+                    if (numeric_converted.notna().sum() / len(df)) > 0.5:
+                        df[column] = numeric_converted
+                        continue
+
+                # Try to convert to datetime
+                if df[column].dtype == 'object':
+                    try:
+                        # Sample a few values to check if they might be dates
+                        sample_values = df[column].dropna().head(10)
+                        if len(sample_values) > 0:
+                            # Try to parse dates with multiple formats
+                            date_formats = ['%Y-%m-%d', '%m/%d/%Y',
+                                            '%d/%m/%Y', '%Y-%m-%d %H:%M:%S']
+                            for date_format in date_formats:
+                                try:
+                                    pd.to_datetime(
+                                        sample_values.iloc[0], format=date_format)
+                                    df[column] = pd.to_datetime(
+                                        df[column], format=date_format, errors='coerce')
+                                    break
+                                except:
+                                    continue
+                            else:
+                                # Try general datetime parsing
+                                datetime_converted = pd.to_datetime(
+                                    df[column], errors='coerce')
+                                if (datetime_converted.notna().sum() / len(df)) > 0.5:
+                                    df[column] = datetime_converted
+                    except:
+                        pass  # Keep as object type if datetime conversion fails
+
+        # Step 5: Remove duplicate rows
+        if not df.empty:
+            initial_rows = len(df)
+            df = df.drop_duplicates()
+            df = df.reset_index(drop=True)
+            duplicates_removed = initial_rows - len(df)
+        else:
+            duplicates_removed = 0
+
+        # Step 6: Handle missing values intelligently
+        if not df.empty:
+            for column in df.columns:
+                if df[column].dtype in ['int64', 'float64']:
+                    # For numeric columns, fill missing values with median
+                    if df[column].isna().any():
+                        median_value = df[column].median()
+                        if pd.notna(median_value):
+                            df[column] = df[column].fillna(median_value)
+                elif df[column].dtype == 'object':
+                    # For text columns, fill with 'Unknown' or most frequent value
+                    if df[column].isna().any():
+                        mode_value = df[column].mode()
+                        if len(mode_value) > 0:
+                            df[column] = df[column].fillna(mode_value.iloc[0])
+                        else:
+                            df[column] = df[column].fillna('Unknown')
+
+        # Final cleanup: Reset index
         df = df.reset_index(drop=True)
+
+        # Log cleaning summary
+        final_shape = df.shape
+        print(f"Data cleaning completed: {original_shape} -> {final_shape}")
+        if duplicates_removed > 0:
+            print(f"Removed {duplicates_removed} duplicate rows")
 
         return df
 
@@ -118,7 +242,16 @@ def clean_data(file_path: str) -> pd.DataFrame:
 
 
 def get_cleaning_summary(original_df: pd.DataFrame, cleaned_df: pd.DataFrame) -> str:
-    """Generate a summary of the data cleaning process."""
+    """
+    Generate a comprehensive summary of the data cleaning process.
+
+    Args:
+        original_df (pd.DataFrame): Original DataFrame before cleaning
+        cleaned_df (pd.DataFrame): DataFrame after cleaning
+
+    Returns:
+        str: Human-readable summary of cleaning operations performed
+    """
     orig_rows, orig_cols = original_df.shape
     clean_rows, clean_cols = cleaned_df.shape
 
@@ -126,20 +259,48 @@ def get_cleaning_summary(original_df: pd.DataFrame, cleaned_df: pd.DataFrame) ->
     cols_removed = orig_cols - clean_cols
 
     summary_parts = []
+
+    # Report structural changes
     if rows_removed > 0:
-        summary_parts.append(f"Removed {rows_removed} empty rows")
+        summary_parts.append(f"Removed {rows_removed} empty/duplicate rows")
     if cols_removed > 0:
         summary_parts.append(
             f"Removed {cols_removed} empty/irrelevant columns")
 
-    # Check for data type improvements
-    numeric_cols = len(cleaned_df.select_dtypes(include=['number']).columns)
-    date_cols = len(cleaned_df.select_dtypes(include=['datetime']).columns)
+    # Report data type improvements
+    if not cleaned_df.empty:
+        numeric_cols = len(cleaned_df.select_dtypes(
+            include=['int64', 'float64']).columns)
+        datetime_cols = len(cleaned_df.select_dtypes(
+            include=['datetime64']).columns)
+        text_cols = len(cleaned_df.select_dtypes(include=['object']).columns)
 
-    if numeric_cols > 0:
-        summary_parts.append(f"Optimized {numeric_cols} numeric columns")
-    if date_cols > 0:
-        summary_parts.append(f"Parsed {date_cols} date columns")
+        type_summary = []
+        if numeric_cols > 0:
+            type_summary.append(f"{numeric_cols} numeric")
+        if datetime_cols > 0:
+            type_summary.append(f"{datetime_cols} datetime")
+        if text_cols > 0:
+            type_summary.append(f"{text_cols} text")
+
+        if type_summary:
+            summary_parts.append(
+                f"Optimized data types: {', '.join(type_summary)} columns")
+
+    # Report missing value handling
+    if not cleaned_df.empty:
+        missing_values = cleaned_df.isnull().sum().sum()
+        if missing_values == 0:
+            summary_parts.append("Handled all missing values")
+        elif missing_values < original_df.isnull().sum().sum():
+            summary_parts.append(f"Reduced missing values to {missing_values}")
+
+    # Report column name standardization
+    if not original_df.empty and not cleaned_df.empty:
+        original_cols_with_spaces = sum(
+            1 for col in original_df.columns if ' ' in str(col))
+        if original_cols_with_spaces > 0:
+            summary_parts.append("Standardized column names")
 
     if not summary_parts:
         return "Data was already clean - no changes needed"
@@ -721,4 +882,241 @@ async def clean_file_data(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error cleaning file data: {str(e)}"
+        )
+
+
+@router.post("/{file_id}/advanced-clean")
+async def advanced_clean_file_data(
+    file_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Perform advanced data cleaning using the comprehensive DataCleaner utility.
+
+    This endpoint provides more sophisticated cleaning than the basic clean endpoint,
+    including:
+    - Intelligent data type conversion
+    - Advanced missing value handling
+    - Column name standardization
+    - Duplicate removal
+    - Comprehensive reporting
+    """
+    file = db.query(FileUpload).filter(
+        FileUpload.id == file_id,
+        FileUpload.user_id == current_user.id
+    ).first()
+
+    if not file:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="File not found"
+        )
+
+    file_path = os.path.join(UPLOAD_DIR, file.filename)
+    if not os.path.exists(file_path):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Physical file not found"
+        )
+
+    try:
+        # Use the advanced data cleaning utility
+        cleaned_df, cleaning_stats = clean_uploaded_file(file_path)
+
+        if not cleaning_stats.get('success', False):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Advanced cleaning failed: {cleaning_stats.get('error', 'Unknown error')}"
+            )
+
+        # Save cleaned data back to file
+        file_ext = os.path.splitext(file_path)[1].lower()
+        if file_ext == ".csv":
+            cleaned_df.to_csv(file_path, index=False)
+        elif file_ext in [".xlsx", ".xls"]:
+            cleaned_df.to_excel(file_path, index=False)
+        else:
+            # For TXT files, save as CSV
+            csv_path = file_path.replace(file_ext, ".csv")
+            cleaned_df.to_csv(csv_path, index=False)
+            # Update filename in database to reflect format change
+            file.filename = file.filename.replace(file_ext, ".csv")
+
+        # Update file metadata in the database
+        file.rows_count = cleaned_df.shape[0]
+        file.columns_count = cleaned_df.shape[1]
+        file.file_type = ".csv" if file_ext == ".txt" else file_ext
+        db.commit()
+
+        # Prepare response
+        response_data = {
+            "status": "success",
+            "file_id": file_id,
+            "cleaning_summary": cleaning_stats,
+            "preview": cleaned_df.head(10).to_dict('records') if not cleaned_df.empty else [],
+            "message": cleaning_stats.get('message', 'Advanced data cleaning completed successfully')
+        }
+
+        return response_data
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error during advanced cleaning: {str(e)}"
+        )
+
+
+@router.get("/{file_id}/data-quality")
+async def get_data_quality_report(
+    file_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Generate a comprehensive data quality report for the uploaded file.
+
+    This endpoint analyzes the file and provides detailed insights about:
+    - Data types and distribution
+    - Missing values patterns
+    - Potential data quality issues
+    - Cleaning recommendations
+    """
+    file = db.query(FileUpload).filter(
+        FileUpload.id == file_id,
+        FileUpload.user_id == current_user.id
+    ).first()
+
+    if not file:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="File not found"
+        )
+
+    file_path = os.path.join(UPLOAD_DIR, file.filename)
+    if not os.path.exists(file_path):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Physical file not found"
+        )
+
+    try:
+        # Load the file and analyze data quality
+        file_ext = file_path.lower()
+        df = None
+
+        # Load file based on extension
+        if file_ext.endswith((".csv", ".txt")):
+            encodings = ['utf-8', 'latin1', 'cp1252', 'iso-8859-1']
+            for encoding in encodings:
+                try:
+                    df = pd.read_csv(file_path, encoding=encoding)
+                    break
+                except UnicodeDecodeError:
+                    continue
+        elif file_ext.endswith((".xlsx", ".xls")):
+            df = pd.read_excel(file_path)
+
+        if df is None:
+            raise ValueError("Could not load file")
+
+        # Generate comprehensive data quality report
+        quality_report = {
+            "file_info": {
+                "filename": file.filename,
+                "file_type": file.file_type,
+                "file_size_mb": file.file_size / 1024 / 1024 if file.file_size else 0,
+                "shape": df.shape
+            },
+            "data_overview": {
+                'shape': df.shape,
+                'columns': df.columns.tolist(),
+                'data_types': {col: str(dtype) for col, dtype in df.dtypes.items()},
+                'missing_values': df.isnull().sum().to_dict(),
+                'memory_usage_mb': df.memory_usage(deep=True).sum() / 1024 / 1024,
+            },
+            "quality_issues": [],
+            "recommendations": []
+        }
+
+        # Analyze data quality issues
+        if df.empty:
+            quality_report["quality_issues"].append("Dataset is empty")
+            quality_report["recommendations"].append("Upload a file with data")
+        else:
+            # Check for missing values
+            missing_values = df.isnull().sum()
+            high_missing_cols = missing_values[missing_values > len(
+                df) * 0.5].index.tolist()
+            if high_missing_cols:
+                quality_report["quality_issues"].append(
+                    f"High missing values in columns: {high_missing_cols}")
+                quality_report["recommendations"].append(
+                    "Consider removing or imputing high-missing columns")
+
+            # Check for duplicate rows
+            duplicates = df.duplicated().sum()
+            if duplicates > 0:
+                quality_report["quality_issues"].append(
+                    f"Found {duplicates} duplicate rows")
+                quality_report["recommendations"].append(
+                    "Remove duplicate rows for better analysis")
+
+            # Check for unnamed columns
+            unnamed_cols = [col for col in df.columns if str(
+                col).startswith("Unnamed")]
+            if unnamed_cols:
+                quality_report["quality_issues"].append(
+                    f"Found {len(unnamed_cols)} unnamed columns")
+                quality_report["recommendations"].append(
+                    "Remove or rename unnamed columns")
+
+            # Check for inconsistent data types
+            object_cols = df.select_dtypes(include=['object']).columns
+            for col in object_cols:
+                # Check if column might be numeric
+                numeric_convertible = pd.to_numeric(
+                    df[col], errors='coerce').notna().sum()
+                if numeric_convertible > len(df) * 0.5:
+                    quality_report["quality_issues"].append(
+                        f"Column '{col}' appears numeric but stored as text")
+                    quality_report["recommendations"].append(
+                        f"Convert column '{col}' to numeric type")
+
+            # Check for empty rows/columns
+            empty_rows = df.isnull().all(axis=1).sum()
+            empty_cols = df.isnull().all(axis=0).sum()
+            if empty_rows > 0:
+                quality_report["quality_issues"].append(
+                    f"Found {empty_rows} completely empty rows")
+                quality_report["recommendations"].append("Remove empty rows")
+            if empty_cols > 0:
+                quality_report["quality_issues"].append(
+                    f"Found {empty_cols} completely empty columns")
+                quality_report["recommendations"].append(
+                    "Remove empty columns")
+
+        # Add cleaning readiness score
+        total_issues = len(quality_report["quality_issues"])
+        if total_issues == 0:
+            quality_report["readiness_score"] = 100
+            quality_report["readiness_level"] = "Excellent"
+        elif total_issues <= 2:
+            quality_report["readiness_score"] = 80
+            quality_report["readiness_level"] = "Good"
+        elif total_issues <= 4:
+            quality_report["readiness_score"] = 60
+            quality_report["readiness_level"] = "Fair"
+        else:
+            quality_report["readiness_score"] = 40
+            quality_report["readiness_level"] = "Needs Improvement"
+
+        return quality_report
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error generating data quality report: {str(e)}"
         )
