@@ -1,6 +1,17 @@
-from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Text
+
 from sqlalchemy.orm import declarative_base, relationship
 from sqlalchemy.sql import func
+from sq  # --- Plan Model ---
+
+
+class Plan(Base):
+    __tablename__ = "plans"
+    id = Column(Integer, primary_key=True)
+    name = Column(String, unique=True, nullable=False)
+    max_files = Column(Integer, nullable=False, default=10)
+    max_uploads_per_month = Column(Integer, nullable=False, default=50)
+    from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Text
+
 
 Base = declarative_base()
 
@@ -14,6 +25,9 @@ class Plan(Base):
     max_uploads_per_month = Column(Integer, nullable=False, default=50)
     max_summaries_per_month = Column(Integer, nullable=False, default=20)
     max_file_size_mb = Column(Integer, nullable=False, default=10)
+    users = relationship("User", back_populates="plan")
+    name = Column(String, unique=True, nullable=False)
+    max_files = Column(Integer, nullable=False, default=10)
     users = relationship("User", back_populates="plan")
 
 

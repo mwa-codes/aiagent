@@ -1,25 +1,15 @@
 """Database initialization script."""
 
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-import os
-
+from .db import sync_engine, SessionLocal
 from .models import Base, Plan, User
 from .api.auth import get_password_hash
-
-# Database URL
-DATABASE_URL = os.getenv(
-    "DATABASE_URL", "postgresql://postgres:postgres@db:5432/postgres")
-
-engine = create_engine(DATABASE_URL)
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
 def init_database():
     """Initialize the database with tables and default data."""
 
     # Create all tables
-    Base.metadata.create_all(bind=engine)
+    Base.metadata.create_all(bind=sync_engine)
 
     # Create default plans
     db = SessionLocal()

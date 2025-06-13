@@ -16,6 +16,7 @@ import os
 from typing import List, Dict, Any, Tuple
 from ..models import FileUpload, User, Result
 from ..utils.openai_client import summarize_text
+from ..utils.plan_limits import check_plan_limit
 # Summarize a file's data and save the summary
 from fastapi import Body
 
@@ -45,6 +46,9 @@ async def summarize_file(
     """
     Summarize the cleaned data of a file for the current user using OpenAI.
     """
+    # Check summary limits before processing
+    check_plan_limit(current_user, db, "summary")
+
     # Retrieve the file for the user
     file = db.query(FileUpload).filter(
         FileUpload.id == file_id,
@@ -596,14 +600,14 @@ async def upload_file(
     # Validate file format and basic properties
     validate_file(file)
 
-    # Check user's plan limits
-    user_files_count = db.query(FileUpload).filter(
-        FileUpload.user_id == current_user.id).count()
-    if current_user.plan and user_files_count >= current_user.plan.max_files:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=f"Upload limit reached. Your plan allows {current_user.plan.max_files} files."
-        )
+    # Get file size in MB for plan limit checking
+    file.file.seek(0, 2)  # Seek to end
+    file_size_bytes = file.file.tell()
+    file.file.seek(0)  # Reset to beginning
+    file_size_mb = file_size_bytes / (1024 * 1024)
+
+    # Check comprehensive plan limits before processing
+    check_plan_limit(current_user, db, "upload", file_size_mb=file_size_mb)
 
     # Create upload directory if it doesn't exist
     os.makedirs(UPLOAD_DIR, exist_ok=True)

@@ -1,15 +1,16 @@
+from app.models import Base
 import sys
 import os
-from app.models import Base
 from alembic import context
-from sqlalchemy import pool
+from sqlalchemy import pool, create_engine
 from sqlalchemy import engine_from_config
 from logging.config import fileConfig
-sys.path.insert(0, os.path.abspath(
-    os.path.join(os.path.dirname(__file__), '../app')))
-sys.path.insert(0, os.path.abspath(
-    os.path.join(os.path.dirname(__file__), '../app')))
 
+# Add the backend directory to Python path
+sys.path.insert(0, os.path.abspath(
+    os.path.join(os.path.dirname(__file__), '..')))
+
+# Now import after setting up the path
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -62,11 +63,23 @@ def run_migrations_online() -> None:
     and associate a connection with the context.
 
     """
-    connectable = engine_from_config(
-        config.get_section(config.config_ini_section, {}),
-        prefix="sqlalchemy.",
-        poolclass=pool.NullPool,
-    )
+    # Use DATABASE_URL_SYNC environment variable if available (for Docker)
+    database_url = os.getenv('DATABASE_URL_SYNC')
+
+    print(f"DEBUG: DATABASE_URL_SYNC = {database_url}")
+
+    if database_url:
+        # Use environment variable for Docker container
+        print(f"DEBUG: Using environment database URL: {database_url}")
+        connectable = create_engine(database_url, poolclass=pool.NullPool)
+    else:
+        # Use alembic.ini configuration for local development
+        print("DEBUG: Using alembic.ini configuration")
+        connectable = engine_from_config(
+            config.get_section(config.config_ini_section, {}),
+            prefix="sqlalchemy.",
+            poolclass=pool.NullPool,
+        )
 
     with connectable.connect() as connection:
         context.configure(
