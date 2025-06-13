@@ -1,21 +1,23 @@
-from typing import List, Dict, Any, Tuple
-import os
-import shutil
-import uuid
-import mimetypes
-from datetime import datetime
-from io import BytesIO
-
-from fastapi import APIRouter, UploadFile, File, Depends, HTTPException, status
-from pydantic import BaseModel
-
-import pandas as pd
-import openpyxl
-from sqlalchemy.orm import Session
-from ..db import get_db
-from ..models import FileUpload, User
-from .auth import get_current_user
 from ..utils.data_cleaning import clean_uploaded_file
+from .auth import get_current_user
+from ..models import FileUpload, User
+from ..db import get_db
+from sqlalchemy.orm import Session
+import openpyxl
+import pandas as pd
+from pydantic import BaseModel
+from fastapi import APIRouter, UploadFile, File, Depends, HTTPException, status
+from io import BytesIO
+from datetime import datetime
+import mimetypes
+import uuid
+import shutil
+import os
+from typing import List, Dict, Any, Tuple
+from ..models import FileUpload, User, Result
+from ..utils.openai_client import summarize_text
+# Summarize a file's data and save the summary
+from fastapi import Body
 
 router = APIRouter(prefix="/files", tags=["files"])
 
@@ -23,6 +25,63 @@ router = APIRouter(prefix="/files", tags=["files"])
 UPLOAD_DIR = os.getenv("UPLOAD_DIR", "/app/uploads")
 MAX_FILE_SIZE = int(os.getenv("MAX_FILE_SIZE", "10485760"))  # 10MB default
 # Focus on text and spreadsheet files
+ALLOWED_EXTENSIONS = {".txt", ".csv", ".xlsx", ".xls"}
+ALLOWED_MIME_TYPES = {
+    "text/plain",
+    "text/csv",
+    "application/csv",
+    "application/octet-stream",  # Sometimes CSV files are detected as this
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/vnd.ms-excel"
+}
+
+
+@router.post("/summarize/{file_id}")
+async def summarize_file(
+    file_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Summarize the cleaned data of a file for the current user using OpenAI.
+    """
+    # Retrieve the file for the user
+    file = db.query(FileUpload).filter(
+        FileUpload.id == file_id,
+        FileUpload.user_id == current_user.id
+    ).first()
+    if not file:
+        raise HTTPException(status_code=404, detail="File not found")
+
+    file_path = os.path.join(UPLOAD_DIR, file.filename)
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="Physical file not found")
+
+    # Clean and load the data
+    cleaned_df, _ = clean_uploaded_file(file_path)
+    # Use only the first 20 rows for summarization to avoid token limits
+    preview_df = cleaned_df.head(20)
+    # Convert to CSV string for prompt
+    data_str = preview_df.to_csv(index=False)
+    prompt = f"Summarize this dataset:\n{data_str}"
+
+    # Call OpenAI to summarize
+    try:
+        summary = summarize_text(prompt)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"OpenAI error: {str(e)}")
+
+    # Save summary to the database (Result table)
+    result = Result(file_id=file.id, result_text=summary)
+    db.add(result)
+    db.commit()
+    db.refresh(result)
+
+    # Optionally, update the file's summary field
+    file.summary = summary
+    db.commit()
+
+    return {"file_id": file.id, "summary": summary}
 ALLOWED_EXTENSIONS = {".txt", ".csv", ".xlsx", ".xls"}
 ALLOWED_MIME_TYPES = {
     "text/plain",
@@ -79,6 +138,46 @@ class DataCleaningResponse(BaseModel):
     columns_removed: int
     cleaning_summary: str
     preview: Dict[str, Any]
+
+
+class FileHistoryItem(BaseModel):
+    id: int
+    filename: str
+    upload_date: datetime
+    file_type: str | None
+    file_size: int | None
+    has_summary: bool
+
+    class Config:
+        from_attributes = True
+
+
+class FileHistoryResponse(BaseModel):
+    files: List[FileHistoryItem]
+    total: int
+
+
+class FileSummaryResult(BaseModel):
+    id: int
+    result_text: str
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class FileResultsResponse(BaseModel):
+    file_id: int
+    filename: str
+    upload_date: datetime
+    file_type: str | None
+    file_size: int | None
+    rows_count: int | None
+    columns_count: int | None
+    summaries: List[FileSummaryResult]
+
+    class Config:
+        from_attributes = True
 
 
 def clean_data(file_path: str) -> pd.DataFrame:
@@ -775,6 +874,82 @@ async def list_files(
         FileUpload.user_id == current_user.id).count()
 
     return FileListResponse(files=files, total=total)
+
+
+# --- History Endpoints ---
+@router.get("/history/files", response_model=FileHistoryResponse)
+async def get_user_file_history(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get list of all files uploaded by the current user with basic metadata.
+    """
+    files = db.query(FileUpload).filter(
+        FileUpload.user_id == current_user.id
+    ).order_by(FileUpload.upload_date.desc()).all()
+
+    file_items = []
+    for file in files:
+        file_items.append(FileHistoryItem(
+            id=file.id,
+            filename=file.filename,
+            upload_date=file.upload_date,
+            file_type=file.file_type,
+            file_size=file.file_size,
+            has_summary=file.summary is not None
+        ))
+
+    return FileHistoryResponse(
+        files=file_items,
+        total=len(file_items)
+    )
+
+
+@router.get("/history/results/{file_id}", response_model=FileResultsResponse)
+async def get_file_results_history(
+    file_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get all summaries and results for a specific file owned by the current user.
+    """
+    # Verify file ownership and existence
+    file = db.query(FileUpload).filter(
+        FileUpload.id == file_id,
+        FileUpload.user_id == current_user.id
+    ).first()
+
+    if not file:
+        raise HTTPException(
+            status_code=404,
+            detail="File not found or you don't have permission to access it"
+        )
+
+    # Get all results/summaries for this file
+    results = db.query(Result).filter(
+        Result.file_id == file_id
+    ).order_by(Result.created_at.desc()).all()
+
+    summary_results = []
+    for result in results:
+        summary_results.append(FileSummaryResult(
+            id=result.id,
+            result_text=result.result_text,
+            created_at=result.created_at
+        ))
+
+    return FileResultsResponse(
+        file_id=file.id,
+        filename=file.filename,
+        upload_date=file.upload_date,
+        file_type=file.file_type,
+        file_size=file.file_size,
+        rows_count=file.rows_count,
+        columns_count=file.columns_count,
+        summaries=summary_results
+    )
 
 
 @router.get("/{file_id}", response_model=FileResponse)

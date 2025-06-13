@@ -1,9 +1,9 @@
+
 from pydantic import BaseModel
-import os
-import openai
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from .auth import get_current_user
+from ..utils.openai_client import summarize_text
 
 router = APIRouter(prefix="/gpt", tags=["gpt"])
 
@@ -32,46 +32,17 @@ class SummarizeResponse(BaseModel):
 
 
 # --- Summarization Endpoint ---
+
 @router.post("/summarize", response_model=SummarizeResponse)
 async def summarize_text_api(
     request: SummarizeRequest,
     current_user=Depends(get_current_user)
 ):
-    """Summarize the given text using OpenAI GPT-4.1 (or specified model). Handles chunking for long texts."""
-    if not openai.api_key:
-        raise HTTPException(
-            status_code=500, detail="OpenAI API key not configured.")
+    """Summarize the given text using OpenAI GPT-4.1 (or specified model)."""
     try:
         text = request.text.strip()
         model = request.model or "gpt-4.1"
-        # Chunk if text is long
-        chunks = chunk_text(text, max_tokens=1500) if len(
-            text.split()) > 1800 else [text]
-        chunk_summaries = []
-        for chunk in chunks:
-            response = openai.ChatCompletion.create(
-                model=model,
-                messages=[
-                    {"role": "system",
-                        "content": "You are an assistant that summarizes data."},
-                    {"role": "user", "content": chunk}
-                ]
-            )
-            chunk_summary = response['choices'][0]['message']['content']
-            chunk_summaries.append(chunk_summary)
-        # If more than one chunk, summarize the summaries
-        if len(chunk_summaries) > 1:
-            final_response = openai.ChatCompletion.create(
-                model=model,
-                messages=[
-                    {"role": "system",
-                        "content": "You are an assistant that summarizes data."},
-                    {"role": "user", "content": '\n'.join(chunk_summaries)}
-                ]
-            )
-            summary = final_response['choices'][0]['message']['content']
-        else:
-            summary = chunk_summaries[0]
+        summary = summarize_text(text, model=model)
         return SummarizeResponse(summary=summary)
     except Exception as e:
         raise HTTPException(
@@ -84,9 +55,6 @@ try:
     from ..models import Result, FileUpload, User
 except ImportError:
     pass
-
-# OpenAI configuration
-openai.api_key = os.getenv("OPENAI_API_KEY")
 
 
 class GPTRequest(BaseModel):
