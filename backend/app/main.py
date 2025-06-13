@@ -1,10 +1,14 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+
 from .api.auth import router as auth_router
 from .api.files import router as files_router
 from .api.gpt import router as gpt_router
 from .api.users import router as users_router
+
+from .api.billing import router as billing_router
+from .api.webhook import router as webhook_router
 
 app = FastAPI(
     title="Full-Stack AI Agent API",
@@ -27,6 +31,8 @@ app.include_router(auth_router)
 app.include_router(files_router)
 app.include_router(gpt_router)
 app.include_router(users_router)
+app.include_router(billing_router)
+app.include_router(webhook_router)
 
 
 @app.get("/")

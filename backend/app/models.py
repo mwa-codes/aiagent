@@ -25,6 +25,7 @@ class User(Base):
     password_hash = Column(String, nullable=False)
     plan_id = Column(Integer, ForeignKey("plans.id"), nullable=True)
     plan = relationship("Plan", back_populates="users")
+    stripe_customer_id = Column(String, unique=True, nullable=True, index=True)
     files = relationship("FileUpload", back_populates="user",
                          cascade="all, delete-orphan")
 
